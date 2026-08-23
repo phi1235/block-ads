@@ -1,8 +1,7 @@
-﻿<resources>
+<resources>
     <string name="app_name">ReelGuard</string>
-    <string name="tile_label">ReelGuard Ads</string>
-    <string name="vpn_channel_name">ReelGuard Service</string>
-    <string name="vpn_channel_desc">Hiển thị trạng thái bảo vệ khi xem Reels</string>
-    <string name="vpn_running_title">ReelGuard đang bảo vệ</string>
-    <string name="vpn_running_text">Đang lọc quảng cáo Facebook Reels &amp; bảo toàn phân trang</string>
+    <string name="vpn_channel_name">Trạng Thái Bảo Vệ ReelGuard</string>
+    <string name="vpn_channel_desc">Hiển thị trạng thái hoạt động của lá chắn ReelGuard</string>
+    <string name="vpn_running_title">ReelGuard Đang Hoạt Động</string>
+    <string name="vpn_running_text">Đang bảo vệ luồng Facebook Reels &amp; Watch khỏi quảng cáo chèn ngang</string>
 </resources>

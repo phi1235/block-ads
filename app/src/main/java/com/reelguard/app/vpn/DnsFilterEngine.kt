@@ -1,15 +1,9 @@
-﻿package com.reelguard.app.vpn
+package com.reelguard.app.vpn
 
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.io.FileDescriptor
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
 import java.nio.ByteBuffer
 
 object AdBlockStats {
@@ -27,24 +21,75 @@ object AdBlockStats {
 
 object DnsFilterEngine {
     private const val TAG = "DnsFilter"
-    private val AD_DOMAIN_KEYWORDS = listOf(
+    
+    // 1. Danh sách tên miền phân phối quảng cáo và theo dõi (Meta Audience Network, Video In-stream Ads)
+    private val AD_DOMAINS = setOf(
         "an.facebook.com",
         "audiencenetwork.facebook.com",
         "ads.facebook.com",
+        "admarket.facebook.com",
         "pixel.facebook.com",
         "tr.facebook.com",
-        "admarket.facebook.com",
         "analytics.facebook.com",
-        "ad_delivery",
-        "page_ads",
+        "adservices.meta.com",
+        "meta.adservices.com",
+        "ad.atdmt.com",
+        "ads.instagram.com",
+        "ads.fb.com",
+        "facebookads.com",
+        "graph-video.facebook.com",
         "doubleclick.net",
-        "googleads",
-        "adservice"
+        "googleads.g.doubleclick.net",
+        "adservice.google.com",
+        "pagead2.googlesyndication.com",
+        "taboola.com",
+        "outbrain.com",
+        "appsflyer.com",
+        "adjust.com",
+        "app-measurement.com",
+        "inmobi.com",
+        "vungle.com",
+        "unityads.unity3d.com",
+        "ironsrc.com"
+    )
+
+    private val AD_PATTERNS = listOf(
+        "ad_delivery",
+        "graph-video-ads",
+        "page_ads",
+        "audiencenetwork",
+        "adservices",
+        "video-ads",
+        "ads-api",
+        "ads_telemetry"
+    )
+
+    // 2. Whitelist bắt buộc để bảo tồn phân trang Reels (100% infinite scroll) và bình luận
+    private val WHITELIST_DOMAINS = listOf(
+        "graph.facebook.com",
+        "b-graph.facebook.com",
+        "z-m-graph.facebook.com",
+        "api.facebook.com",
+        "fbcdn.net",
+        "fbsbx.com",
+        "cdninstagram.com"
     )
 
     fun isAdDomain(domain: String): Boolean {
         val lower = domain.lowercase().trimEnd('.')
-        return AD_DOMAIN_KEYWORDS.any { lower.contains(it) }
+
+        // 1. Kiểm tra chính xác domain quảng cáo chèn ngang & tracking
+        if (AD_DOMAINS.any { lower == it || lower.endsWith(".$it") }) {
+            return true
+        }
+
+        // 2. Nếu nằm trong Whitelist phân trang & bình luận -> Tuyệt đối KHÔNG chặn
+        if (WHITELIST_DOMAINS.any { lower == it || lower.endsWith(".$it") }) {
+            return false
+        }
+
+        // 3. Kiểm tra các mẫu từ khóa quảng cáo
+        return AD_PATTERNS.any { lower.contains(it) }
     }
 
     /**

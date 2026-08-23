@@ -1,4 +1,4 @@
-package com.reelguard.app.cert
+﻿package com.reelguard.app.cert
 
 import android.content.Context
 import android.content.Intent
@@ -13,34 +13,39 @@ object CertificateHelper {
     private const val CA_FILE_NAME = "ReelGuard_Root_CA.crt"
     private const val TAG = "CertHelper"
 
-    // Mẫu chứng chỉ CA Root chuẩn ECDSA P-256 (hoặc tạo động từ Go core)
+    // Chứng chỉ Root CA chuẩn X.509 RSA-2048 hợp lệ 100% (RFC 5280, CA:TRUE)
     private val DEFAULT_CA_PEM = """
-        -----BEGIN CERTIFICATE-----
-        MIIBdTCCARygAwIBAgIRAJ9L6bK2v1yW3K8w4P5qNqswCgYIKoZIzj0EAwIw
-        VjEbMBkGA1UEChMSUmVlbEd1YXJkIFNlY3VyaXR5MRwwGgYDVQQDExNSZWVs
-        R3VhcmQgUm9vdCBDQTEOMAwGA1UEEQwFVk4tVFAxCzAJBgNVBAYTAlZOMB4X
-        DTI2MDgyMzE0MDAwMFoXDTM2MDgyMTE0MDAwMFowVjEbMBkGA1UEChMSUmVs
-        R3VhcmQgU2VjdXJpdHkxHDAaBgNVBAMTE1JlZWxHdWFyZCBSb290IENBMQ4w
-        DAYDVQQEDAVWTi1UUDELMAkGA1UEBhMCVk4wdjAQBgcqhkjOPQIBBgUrgQAI
-        IwNiAARxS3uK0n7qO9w8M4lq1bX5y9s7v2q6r1x4c3v5n8m9w0k1j2l3o4p5
-        q6r7s8t9u0v1w2x3y4z5a6b7c8d9e0f1g2h3i4j5k6l7m8n9o0p1q2r3s4t5
-        o0UwQzAOBgNVHQ8BAf8EBAMCAQYwEgYDVR0TAQH/BAgwBgEB/wIBATAdBgNV
-        HQ4EFgQU8eK1x3m6b9q2v4l5y8j1w0k2l4owCgYIKoZIzj0EAwIDSAAwRQIh
-        AN9v8q2x3l4k5j6h7g8f9e0d1c2b3a4z5y6x7w8v9u0tAiBW3m4l5k6j7h8g
-        9f0e1d2c3b4a5z6y7x8w9v0u1t2s==
-        -----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIDUDCCAjigAwIBAgIIDzTlMUp/dEUwDQYJKoZIhvcNAQEMBQAwRjELMAkGA1UE
+BhMCVk4xGzAZBgNVBAoTElJlZWxHdWFyZCBTZWN1cml0eTEaMBgGA1UEAxMRUmVl
+bEd1YXJkIFJvb3QgQ0EwHhcNMjYwODIzMTY0NTIwWhcNMzYwODIwMTY0NTIwWjBG
+MQswCQYDVQQGEwJWTjEbMBkGA1UEChMSUmVlbEd1YXJkIFNlY3VyaXR5MRowGAYD
+VQQDExFSZWVsR3VhcmQgUm9vdCBDQTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC
+AQoCggEBAKoDNO3S21a0vKcXK53aP96fNe99dop7k+Fm8U4Lv4t5TdV1sz+5O7P+
+B2W11GStsgM9gsP9VoG+E7SaEAZbh4dIsTzyarICmkwYNUeXzCeDw2B9bTX5TDyk
+GHHyIXmoG+sZrYVFfzOKRAAli/8w7p3EHchpvsOOFrH1zAPk8/8LYUl9wssSA48Q
+KUpvxOwAnkWvl3FkIaXxsFeqvlgfzl0FG0eB3KlduMGnXsfpyZcRq1B10EQ0D+wL
+q7smhtirrynidA4NRGgQMdnjU4RgHorHHJ05kLbC+C8m771hueD1HjIhESMb5Q0s
+AYGlHasGaTWzFpeI5flw6qGlB/s7bkMCAwEAAaNCMEAwHQYDVR0OBBYEFG6oKtgb
+kHjkqYGOvrg4invmAnYRMA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8EBTADAQH/
+MA0GCSqGSIb3DQEBDAUAA4IBAQAk7nK2GgNpEC6r8R7KpQ1weyMfurfCMabZLWAL
+8LqMPVjPPGqbwCaBbypi0oRjZbRWh7Haa79Lup1aGgecP9+bFHqhTQ7pJyCsUwP8
+eDu58OtDSz9JwDOP4g6m5IE2MdFZQmyf6zVBx056lnrfGB4RoIZmZs00YSnUFhU1
+NqqCq4+rsUed5kwsC4LdhReSf4ZT+aGzbACJcJHsnCIihvepDZBRAsxdGCZ1aEto
+VBJOSA4f009G8jzp2Dkw3EM0Lsbv7YkHYSLBJsnMpRlAq33F3ErOdoMSYQGououv
+7EzMuTuHc/8b+8wxzFsfMFu6iB/e9QpQJDxVNRYmQ35ZkOE5
+-----END CERTIFICATE-----
     """.trimIndent()
 
     fun getOrGenerateCaFile(context: Context): File {
         val file = File(context.filesDir, CA_FILE_NAME)
-        if (!file.exists()) {
-            try {
-                FileOutputStream(file).use { out ->
-                    out.write(DEFAULT_CA_PEM.toByteArray())
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Lỗi tạo tệp CA", e)
+        // Luôn ghi đè để đảm bảo chứng chỉ luôn chuẩn xác
+        try {
+            FileOutputStream(file).use { out ->
+                out.write(DEFAULT_CA_PEM.toByteArray())
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Lỗi tạo tệp CA", e)
         }
         return file
     }
@@ -59,7 +64,6 @@ object CertificateHelper {
             context.startActivity(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Lỗi mở Intent cài đặt chứng chỉ KeyChain", e)
-            // Fallback mở bằng chia sẻ file nếu máy dùng ROM tùy biến (MIUI/ColorOS)
             shareCaFile(context, caFile)
         }
     }
