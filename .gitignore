@@ -1,0 +1,28 @@
+﻿*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+app/build/
+core-engine/bin/
+*.apk
+*.aab
+*.hprof
+
+# Security & Private Keys / Keystores
+*.der
+*.key
+*.p12
+*.jks
+*.keystore
+*.pem
+app/src/main/res/raw/
+# Environment Variables
+.env
+.env.local
+.env.*.local
