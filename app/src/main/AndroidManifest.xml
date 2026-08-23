@@ -1,69 +1,66 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Quyền mạng và VPN -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
-
-    <queries>
-        <package android:name="com.facebook.katana" />
-        <package android:name="com.facebook.orca" />
-        <package android:name="com.facebook.lite" />
-    </queries>
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
 
     <application
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/file_paths"
+        android:fullBackupContent="@xml/file_paths"
         android:icon="@drawable/ic_shield"
         android:label="@string/app_name"
         android:roundIcon="@drawable/ic_shield"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@style/Theme.ReelGuard"
+        tools:targetApi="31">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
-            android:theme="@android:style/Theme.Material.NoActionBar">
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.ReelGuard">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Dịch vụ VpnService xử lý bắt gói tin của Facebook -->
+        <!-- Dịch vụ VPN Split-Tunneling -->
         <service
             android:name=".vpn.ReelGuardVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false"
             android:foregroundServiceType="specialUse"
-            android:exported="false">
+            android:permission="android.permission.BIND_VPN_SERVICE">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Local VPN for in-stream Facebook Reels ad-blocking and pagination protection" />
+                android:value="ReelGuard DNS and Stream Filter for Facebook Reels" />
         </service>
 
-        <!-- Quick Settings Tile trên thanh thông báo Android -->
+        <!-- Quick Settings Tile -->
         <service
             android:name=".tile.QuickToggleTile"
+            android:exported="true"
             android:icon="@drawable/ic_shield"
-            android:label="@string/tile_label"
-            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
-            android:exported="true">
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
 
-        <!-- FileProvider cho phép chia sẻ file APK đã patch để cài đặt -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.reelguard.app.fileprovider"
+            android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
@@ -72,5 +69,4 @@
         </provider>
 
     </application>
-
 </manifest>

@@ -1,4 +1,4 @@
-﻿package com.reelguard.app.ui.screens
+package com.reelguard.app.ui.screens
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,14 +21,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,9 +54,7 @@ import com.reelguard.app.vpn.VpnState
 
 @Composable
 fun HomeScreen(
-    onToggleVpn: () -> Unit,
-    onNavigateGuide: () -> Unit,
-    onNavigateReelsPlayer: () -> Unit
+    onToggleVpn: () -> Unit
 ) {
     val vpnStatus by VpnState.status.collectAsState()
     val blockedCount by AdBlockStats.blockedCount.collectAsState()
@@ -71,99 +65,44 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(BrandDarkBackground)
-            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .padding(horizontal = 20.dp, vertical = 28.dp)
             .verticalScroll(scrollState),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
         // Top Header
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column {
-                Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = BrandGreen,
-                    fontWeight = FontWeight.Black
-                )
-                Text(
-                    text = "Chặn Ads Reels & Giữ Phân Trang",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = BrandTextSecondary
-                )
-            }
-            IconButton(onClick = onNavigateGuide) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = "Hướng dẫn",
-                    tint = BrandTextSecondary
-                )
-            }
+            Text(
+                text = stringResource(R.string.app_name),
+                style = MaterialTheme.typography.headlineLarge,
+                color = BrandGreen,
+                fontWeight = FontWeight.Black
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Lá Chắn Smart DNS - Chặn Ads In-Stream Facebook",
+                style = MaterialTheme.typography.bodyMedium,
+                color = BrandTextSecondary
+            )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(40.dp))
 
-        // Big Power Toggle Button
+        // Big Power Toggle Button (Smart DNS Shield)
         VpnToggleButton(
             status = vpnStatus,
             onClick = onToggleVpn
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(40.dp))
 
-        // METHOD 2: Zero-Ads Reels Player Action Card
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onNavigateReelsPlayer() },
-            colors = CardDefaults.cardColors(containerColor = BrandCardBackground),
-            shape = RoundedCornerShape(18.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(
-                            brush = Brush.linearGradient(listOf(BrandBlue, BrandGreen)),
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayCircle,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Mở Trình Xem Reels Siêu Sạch",
-                        color = BrandTextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                    Text(
-                        text = "Không bao giờ có quảng cáo • Giữ 100% comment",
-                        color = BrandGreen,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Status Indicators (2 Cards: Blocked Ads & Pagination Status)
+        // Live Real-time Status Indicators (2 Cards: Blocked Ads & Pagination Status)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             StatusCard(
                 title = "Quảng cáo đã chặn",
@@ -181,41 +120,7 @@ fun HomeScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Split-Tunneling Info Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = BrandCardBackground),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Shield,
-                    contentDescription = null,
-                    tint = BrandGreen,
-                    modifier = Modifier.size(32.dp)
-                )
-                Spacer(modifier = Modifier.width(14.dp))
-                Column {
-                    Text(
-                        text = "Chế độ Smart Stream Shield",
-                        color = BrandTextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                    Text(
-                        text = "Chỉ lọc luồng quảng cáo FB. 100% app ngân hàng & game chạy trực tiếp an toàn, không tốn pin.",
-                        color = BrandTextSecondary,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
-                    )
-                }
-            }
-        }
+        Spacer(modifier = Modifier.height(20.dp))
     }
 }
 
@@ -241,7 +146,7 @@ fun VpnToggleButton(
 
     Box(
         modifier = Modifier
-            .size(190.dp)
+            .size(200.dp)
             .scale(buttonScale)
             .background(brush = gradientBrush, shape = CircleShape)
             .clickable(enabled = !isConnecting) { onClick() },
@@ -254,10 +159,10 @@ fun VpnToggleButton(
             Icon(
                 imageVector = Icons.Default.PowerSettingsNew,
                 contentDescription = "Bật/Tắt VPN",
-                modifier = Modifier.size(54.dp),
+                modifier = Modifier.size(60.dp),
                 tint = if (isConnected) BrandDarkBackground else Color.White
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = when (status) {
                     ConnectionStatus.CONNECTED -> "ĐANG BẬT"
@@ -266,7 +171,7 @@ fun VpnToggleButton(
                 },
                 color = if (isConnected) BrandDarkBackground else Color.White,
                 fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 letterSpacing = 1.sp
             )
         }
@@ -277,17 +182,17 @@ fun VpnToggleButton(
 fun StatusCard(
     title: String,
     value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     iconColor: Color,
     modifier: Modifier = Modifier
 ) {
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = BrandCardBackground),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(18.dp)
     ) {
         Column(
-            modifier = Modifier.padding(14.dp)
+            modifier = Modifier.padding(16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -303,15 +208,15 @@ fun StatusCard(
                     imageVector = icon,
                     contentDescription = null,
                     tint = iconColor,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = value,
                 color = BrandTextPrimary,
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
+                fontSize = 18.sp
             )
         }
     }

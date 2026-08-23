@@ -1,4 +1,4 @@
-﻿package com.reelguard.app
+package com.reelguard.app
 
 import android.app.Activity
 import android.content.Intent
@@ -10,27 +10,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.reelguard.app.ui.screens.GuideScreen
 import com.reelguard.app.ui.screens.HomeScreen
-import com.reelguard.app.ui.screens.ReelsPlayerScreen
-import com.reelguard.app.ui.screens.SettingsScreen
 import com.reelguard.app.ui.theme.BrandDarkBackground
 import com.reelguard.app.ui.theme.ReelGuardTheme
 import com.reelguard.app.vpn.ConnectionStatus
 import com.reelguard.app.vpn.ReelGuardVpnService
 import com.reelguard.app.vpn.VpnState
-
-enum class CurrentScreen {
-    HOME,
-    GUIDE,
-    SETTINGS,
-    REELS_PLAYER
-}
 
 class MainActivity : ComponentActivity() {
 
@@ -53,32 +39,9 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = BrandDarkBackground
                 ) {
-                    var currentScreen by remember { mutableStateOf(CurrentScreen.HOME) }
-
-                    when (currentScreen) {
-                        CurrentScreen.HOME -> {
-                            HomeScreen(
-                                onToggleVpn = { toggleVpn() },
-                                onNavigateGuide = { currentScreen = CurrentScreen.GUIDE },
-                                onNavigateReelsPlayer = { currentScreen = CurrentScreen.REELS_PLAYER }
-                            )
-                        }
-                        CurrentScreen.GUIDE -> {
-                            GuideScreen(
-                                onBack = { currentScreen = CurrentScreen.HOME }
-                            )
-                        }
-                        CurrentScreen.SETTINGS -> {
-                            SettingsScreen(
-                                onBack = { currentScreen = CurrentScreen.HOME }
-                            )
-                        }
-                        CurrentScreen.REELS_PLAYER -> {
-                            ReelsPlayerScreen(
-                                onBack = { currentScreen = CurrentScreen.HOME }
-                            )
-                        }
-                    }
+                    HomeScreen(
+                        onToggleVpn = { toggleVpn() }
+                    )
                 }
             }
         }

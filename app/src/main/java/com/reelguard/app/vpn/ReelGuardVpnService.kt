@@ -1,4 +1,4 @@
-﻿package com.reelguard.app.vpn
+package com.reelguard.app.vpn
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -19,6 +19,8 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 class ReelGuardVpnService : VpnService() {
@@ -26,8 +28,11 @@ class ReelGuardVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var isRunning = false
     private var workerThread: Thread? = null
+    private var executorService: ExecutorService? = null
     private var upstreamSocket: DatagramSocket? = null
     private val dnsCache = ConcurrentHashMap<String, ByteArray>()
+    private val writeLock = Any()
+    private var notificationManager: NotificationManager? = null
 
     companion object {
         const val ACTION_START = "com.reelguard.app.vpn.START"
@@ -35,6 +40,9 @@ class ReelGuardVpnService : VpnService() {
         private const val NOTIFICATION_ID = 9991
         private const val CHANNEL_ID = "reelguard_vpn_channel"
         private const val TAG = "ReelGuardVpn"
+
+        private val PRIMARY_DNS = InetAddress.getByName("1.1.1.1")
+        private val SECONDARY_DNS = InetAddress.getByName("8.8.8.8")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -49,16 +57,38 @@ class ReelGuardVpnService : VpnService() {
         if (isRunning) return
         VpnState.updateStatus(ConnectionStatus.CONNECTING)
 
+        notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        startForeground(NOTIFICATION_ID, buildNotification(AdBlockStats.blockedCount.value))
 
         try {
             val builder = Builder()
-                .setSession("ReelGuard Smart DNS")
+                .setSession("ReelGuard Anti-Ad DNS")
                 .setMtu(1500)
                 .addAddress("10.88.0.2", 32)
                 .addDnsServer("10.88.0.2")
-                .addRoute("10.88.0.2", 32)
+                .addRoute("10.88.0.0", 16)
+                // Chặn bắt các DNS IP phổ biến để chống rò rỉ DNS (Anti-DNS Leak)
+                .addRoute("8.8.8.8", 32)
+                .addRoute("8.8.4.4", 32)
+                .addRoute("1.1.1.1", 32)
+                .addRoute("1.0.0.1", 32)
+                .addRoute("9.9.9.9", 32)
+                .addRoute("208.67.222.222", 32)
+                .addRoute("208.67.220.220", 32)
+                .addRoute("94.140.14.14", 32)
+                .addRoute("94.140.15.15", 32)
+
+            // Ngăn chặn rò rỉ IPv6 DNS
+            try {
+                builder.addAddress("fd00:88::2", 128)
+                builder.addDnsServer("fd00:88::2")
+                builder.addRoute("fd00:88::", 64)
+                builder.addRoute("2001:4860:4860::8888", 128)
+                builder.addRoute("2606:4700:4700::1111", 128)
+            } catch (e: Exception) {
+                Log.w(TAG, "Cấu hình IPv6 bỏ qua: ${e.message}")
+            }
 
             vpnInterface = builder.establish()
             if (vpnInterface == null) {
@@ -69,12 +99,13 @@ class ReelGuardVpnService : VpnService() {
 
             upstreamSocket = DatagramSocket().apply {
                 protect(this) // Bỏ qua VPN để truy cập Internet trực tiếp
-                soTimeout = 1500
+                soTimeout = 1200
             }
 
+            executorService = Executors.newCachedThreadPool()
             isRunning = true
             VpnState.updateStatus(ConnectionStatus.CONNECTED)
-            Log.i(TAG, "ReelGuard Smart DNS Shield đã kích hoạt thành công!")
+            Log.i(TAG, "ReelGuard Anti-Ad DNS Shield đã kích hoạt thành công!")
 
             startDnsLoop(vpnInterface!!)
 
@@ -89,7 +120,6 @@ class ReelGuardVpnService : VpnService() {
             val inputStream = FileInputStream(pfd.fileDescriptor)
             val outputStream = FileOutputStream(pfd.fileDescriptor)
             val packet = ByteArray(32767)
-            val upstreamDns = InetAddress.getByName("1.1.1.1")
 
             try {
                 while (isRunning) {
@@ -112,33 +142,35 @@ class ReelGuardVpnService : VpnService() {
                             val dnsLen = length - dnsOffset
 
                             if (dnsLen > 12) {
-                                val domain = DnsFilterEngine.extractDomainFromDnsPayload(packet, dnsOffset, dnsLen)
-                                Log.d(TAG, "DNS Query: $domain")
+                                val capturedPacket = packet.copyOf(length)
+                                val domain = DnsFilterEngine.extractDomainFromDnsPayload(capturedPacket, dnsOffset, dnsLen)
 
                                 if (domain != null && DnsFilterEngine.isAdDomain(domain)) {
+                                    // Chặn đứng quảng cáo chèn ngang & theo dõi -> Sinkhole 0.0.0.0
                                     Log.i(TAG, "🚫 [CHẶN ADS FB]: $domain -> Trả về Sinkhole 0.0.0.0")
                                     AdBlockStats.increment()
+                                    updateNotificationRealtime()
 
-                                    val dnsResp = DnsFilterEngine.createSinkholeDnsResponse(packet.copyOfRange(dnsOffset, length), dnsLen)
-                                    val responseIpPacket = buildValidIpUdpResponse(packet, ihl, dnsResp)
-                                    outputStream.write(responseIpPacket)
-                                    outputStream.flush()
-                                } else {
-                                    // Chuyển tiếp tới Upstream DNS Cloudflare (1.1.1.1)
-                                    val forwardQuery = DatagramPacket(packet, dnsOffset, dnsLen, upstreamDns, 53)
-                                    try {
-                                        upstreamSocket?.send(forwardQuery)
-
-                                        val recvBuffer = ByteArray(2048)
-                                        val upstreamResp = DatagramPacket(recvBuffer, recvBuffer.size)
-                                        upstreamSocket?.receive(upstreamResp)
-
-                                        val realDnsResp = recvBuffer.copyOf(upstreamResp.length)
-                                        val responseIpPacket = buildValidIpUdpResponse(packet, ihl, realDnsResp)
+                                    val dnsResp = DnsFilterEngine.createSinkholeDnsResponse(
+                                        capturedPacket.copyOfRange(dnsOffset, length),
+                                        dnsLen
+                                    )
+                                    val responseIpPacket = buildValidIpUdpResponse(capturedPacket, ihl, dnsResp)
+                                    synchronized(writeLock) {
                                         outputStream.write(responseIpPacket)
                                         outputStream.flush()
-                                    } catch (e: Exception) {
-                                        Log.w(TAG, "DNS Upstream timeout: $domain")
+                                    }
+                                } else {
+                                    // Xử lý DNS bất đồng bộ cho video organic & GraphQL để tối ưu 100% tốc độ
+                                    executorService?.execute {
+                                        resolveAndForwardDns(
+                                            capturedPacket = capturedPacket,
+                                            ihl = ihl,
+                                            dnsOffset = dnsOffset,
+                                            dnsLen = dnsLen,
+                                            domain = domain,
+                                            outputStream = outputStream
+                                        )
                                     }
                                 }
                             }
@@ -158,8 +190,89 @@ class ReelGuardVpnService : VpnService() {
         }
     }
 
+    private fun updateNotificationRealtime() {
+        if (!isRunning) return
+        val count = AdBlockStats.blockedCount.value
+        val notification = buildNotification(count)
+        notificationManager?.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun resolveAndForwardDns(
+        capturedPacket: ByteArray,
+        ihl: Int,
+        dnsOffset: Int,
+        dnsLen: Int,
+        domain: String?,
+        outputStream: FileOutputStream
+    ) {
+        val queryTxId0 = capturedPacket[dnsOffset]
+        val queryTxId1 = capturedPacket[dnsOffset + 1]
+
+        // 1. Kiểm tra DNS Cache cục bộ (0ms response)
+        if (domain != null) {
+            val cached = dnsCache[domain]
+            if (cached != null) {
+                val clonedResp = cached.copyOf()
+                clonedResp[0] = queryTxId0
+                clonedResp[1] = queryTxId1
+                val responseIpPacket = buildValidIpUdpResponse(capturedPacket, ihl, clonedResp)
+                synchronized(writeLock) {
+                    try {
+                        outputStream.write(responseIpPacket)
+                        outputStream.flush()
+                    } catch (_: Exception) {}
+                }
+                return
+            }
+        }
+
+        // 2. Chuyển tiếp tới Upstream DNS Cloudflare / Google
+        try {
+            val forwardQuery = DatagramPacket(capturedPacket, dnsOffset, dnsLen, PRIMARY_DNS, 53)
+            val socket = upstreamSocket ?: return
+            socket.send(forwardQuery)
+
+            val recvBuffer = ByteArray(2048)
+            val upstreamResp = DatagramPacket(recvBuffer, recvBuffer.size)
+            socket.receive(upstreamResp)
+
+            val realDnsResp = recvBuffer.copyOf(upstreamResp.length)
+
+            // Lưu cache (tối đa 2000 entries)
+            if (domain != null && dnsCache.size < 2000) {
+                dnsCache[domain] = realDnsResp
+            }
+
+            val responseIpPacket = buildValidIpUdpResponse(capturedPacket, ihl, realDnsResp)
+            synchronized(writeLock) {
+                outputStream.write(responseIpPacket)
+                outputStream.flush()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "DNS Upstream Cloudflare timeout, thử fallback Google: $domain")
+            try {
+                val fallbackQuery = DatagramPacket(capturedPacket, dnsOffset, dnsLen, SECONDARY_DNS, 53)
+                val socket = upstreamSocket ?: return
+                socket.send(fallbackQuery)
+
+                val recvBuffer = ByteArray(2048)
+                val upstreamResp = DatagramPacket(recvBuffer, recvBuffer.size)
+                socket.receive(upstreamResp)
+
+                val realDnsResp = recvBuffer.copyOf(upstreamResp.length)
+                val responseIpPacket = buildValidIpUdpResponse(capturedPacket, ihl, realDnsResp)
+                synchronized(writeLock) {
+                    outputStream.write(responseIpPacket)
+                    outputStream.flush()
+                }
+            } catch (_: Exception) {
+                Log.w(TAG, "DNS Upstream fallback thất bại cho domain: $domain")
+            }
+        }
+    }
+
     /**
-     * Xây dựng gói tin IPv4/UDP chuẩn và tính toán IPv4 Header Checksum chính xác
+     * Xây dựng gói tin IPv4/UDP chuẩn và tính toán IPv4 Header Checksum chính xác theo RFC 791
      */
     private fun buildValidIpUdpResponse(origIpPacket: ByteArray, ihl: Int, dnsPayload: ByteArray): ByteArray {
         val totalLen = 20 + 8 + dnsPayload.size
@@ -194,7 +307,7 @@ class ReelGuardVpnService : VpnService() {
 
         val rawPacket = resp.array()
 
-        // 4. Tính toán IPv4 Checksum chính xác theo chuẩn RFC 791
+        // 4. Tính toán IPv4 Checksum chính xác
         val ipChecksum = calculateIpv4Checksum(rawPacket, 0, 20)
         rawPacket[10] = ((ipChecksum.toInt() shr 8) and 0xFF).toByte()
         rawPacket[11] = (ipChecksum.toInt() and 0xFF).toByte()
@@ -225,6 +338,9 @@ class ReelGuardVpnService : VpnService() {
         workerThread?.interrupt()
         workerThread = null
 
+        executorService?.shutdownNow()
+        executorService = null
+
         try {
             upstreamSocket?.close()
             upstreamSocket = null
@@ -237,6 +353,7 @@ class ReelGuardVpnService : VpnService() {
             Log.e(TAG, "Lỗi đóng VPN", e)
         }
 
+        dnsCache.clear()
         VpnState.updateStatus(ConnectionStatus.DISCONNECTED)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -253,12 +370,11 @@ class ReelGuardVpnService : VpnService() {
                 description = getString(R.string.vpn_channel_desc)
                 setShowBadge(false)
             }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
+            notificationManager?.createNotificationChannel(channel)
         }
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(blockedCount: Int): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
@@ -275,11 +391,12 @@ class ReelGuardVpnService : VpnService() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_shield)
-            .setContentTitle("ReelGuard Smart DNS Đang Bật")
-            .setContentText("Đang lọc quảng cáo Reels & Bảo tồn phân trang 100%")
+            .setContentTitle("ReelGuard: Đã chặn $blockedCount quảng cáo")
+            .setContentText("Đang bảo vệ luồng video Facebook")
             .setContentIntent(pendingIntent)
             .addAction(0, "Tắt Bảo Vệ", stopPendingIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
