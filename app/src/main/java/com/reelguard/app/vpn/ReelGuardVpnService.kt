@@ -41,8 +41,8 @@ class ReelGuardVpnService : VpnService() {
         private const val CHANNEL_ID = "reelguard_vpn_channel"
         private const val TAG = "ReelGuardVpn"
 
-        private val PRIMARY_DNS = InetAddress.getByName("1.1.1.1")
-        private val SECONDARY_DNS = InetAddress.getByName("8.8.8.8")
+        private val PRIMARY_DNS = InetAddress.getByName("94.140.14.14")
+        private val SECONDARY_DNS = InetAddress.getByName("94.140.15.15")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -90,6 +90,15 @@ class ReelGuardVpnService : VpnService() {
                 Log.w(TAG, "Cấu hình IPv6 bỏ qua: ${e.message}")
             }
 
+            // Cấu hình Per-App VPN cho các package Facebook nếu có trên máy
+            for (pkg in listOf("com.facebook.katana", "com.facebook.lite", "com.facebook.orca")) {
+                try {
+                    builder.addAllowedApplication(pkg)
+                } catch (_: Exception) {
+                    // Package không tồn tại trên máy
+                }
+            }
+
             vpnInterface = builder.establish()
             if (vpnInterface == null) {
                 Log.e(TAG, "Không thể thiết lập VPN TUN interface")
@@ -133,10 +142,16 @@ class ReelGuardVpnService : VpnService() {
                     val ihl = (packet[0].toInt() and 0x0F) * 4
                     val protocol = packet[9].toInt() and 0xFF
 
-                    // Chỉ chặn bắt gói UDP Port 53 (DNS)
+                    // Xử lý lưu lượng UDP
                     if (protocol == 17 && length >= ihl + 8) {
                         val dstPort = ((packet[ihl + 2].toInt() and 0xFF) shl 8) or (packet[ihl + 3].toInt() and 0xFF)
 
+                        // 1. Chặn giao thức QUIC (UDP Port 443) để ép Facebook dùng TCP TLS tiêu chuẩn
+                        if (dstPort == 443) {
+                            continue // DROP QUIC packet -> ép fallback sang TCP
+                        }
+
+                        // 2. Chặn bắt & phân giải gói tin UDP Port 53 (DNS)
                         if (dstPort == 53) {
                             val dnsOffset = ihl + 8
                             val dnsLen = length - dnsOffset
@@ -144,14 +159,16 @@ class ReelGuardVpnService : VpnService() {
                             if (dnsLen > 12) {
                                 val capturedPacket = packet.copyOf(length)
                                 val domain = DnsFilterEngine.extractDomainFromDnsPayload(capturedPacket, dnsOffset, dnsLen)
+                                val questionType = DnsFilterEngine.extractQuestionType(capturedPacket, dnsOffset, dnsLen)
+                                val cacheKey = if (domain == null) null else "$domain:${questionType ?: 0}"
 
                                 if (domain != null && DnsFilterEngine.isAdDomain(domain)) {
-                                    // Chặn đứng quảng cáo chèn ngang & theo dõi -> Sinkhole 0.0.0.0
-                                    Log.i(TAG, "🚫 [CHẶN ADS FB]: $domain -> Trả về Sinkhole 0.0.0.0")
+                                    // Chặn tên miền quảng cáo & tracking -> Trả về NXDOMAIN chuẩn RFC (0ms delay)
+                                    Log.i(TAG, "🚫 [CHẶN ADS FB]: $domain -> NXDOMAIN")
                                     AdBlockStats.increment()
                                     updateNotificationRealtime()
 
-                                    val dnsResp = DnsFilterEngine.createSinkholeDnsResponse(
+                                    val dnsResp = DnsFilterEngine.createBlockedDnsResponse(
                                         capturedPacket.copyOfRange(dnsOffset, length),
                                         dnsLen
                                     )
@@ -168,7 +185,7 @@ class ReelGuardVpnService : VpnService() {
                                             ihl = ihl,
                                             dnsOffset = dnsOffset,
                                             dnsLen = dnsLen,
-                                            domain = domain,
+                                            cacheKey = cacheKey,
                                             outputStream = outputStream
                                         )
                                     }
@@ -202,15 +219,15 @@ class ReelGuardVpnService : VpnService() {
         ihl: Int,
         dnsOffset: Int,
         dnsLen: Int,
-        domain: String?,
+        cacheKey: String?,
         outputStream: FileOutputStream
     ) {
         val queryTxId0 = capturedPacket[dnsOffset]
         val queryTxId1 = capturedPacket[dnsOffset + 1]
 
-        // 1. Kiểm tra DNS Cache cục bộ (0ms response)
-        if (domain != null) {
-            val cached = dnsCache[domain]
+        // 1. Kiểm tra DNS Cache cục bộ theo (domain, qType) (0ms response)
+        if (cacheKey != null) {
+            val cached = dnsCache[cacheKey]
             if (cached != null) {
                 val clonedResp = cached.copyOf()
                 clonedResp[0] = queryTxId0
@@ -230,17 +247,17 @@ class ReelGuardVpnService : VpnService() {
         try {
             val forwardQuery = DatagramPacket(capturedPacket, dnsOffset, dnsLen, PRIMARY_DNS, 53)
             val socket = upstreamSocket ?: return
-            socket.send(forwardQuery)
+            val realDnsResp = synchronized(socket) {
+                socket.send(forwardQuery)
+                val recvBuffer = ByteArray(4096)
+                val upstreamResp = DatagramPacket(recvBuffer, recvBuffer.size)
+                socket.receive(upstreamResp)
+                recvBuffer.copyOf(upstreamResp.length)
+            }
 
-            val recvBuffer = ByteArray(2048)
-            val upstreamResp = DatagramPacket(recvBuffer, recvBuffer.size)
-            socket.receive(upstreamResp)
-
-            val realDnsResp = recvBuffer.copyOf(upstreamResp.length)
-
-            // Lưu cache (tối đa 2000 entries)
-            if (domain != null && dnsCache.size < 2000) {
-                dnsCache[domain] = realDnsResp
+            // Lưu cache khi phân giải thành công (tối đa 2000 entries)
+            if (cacheKey != null && dnsCache.size < 2000 && isSuccessfulDnsResponse(realDnsResp)) {
+                dnsCache[cacheKey] = realDnsResp
             }
 
             val responseIpPacket = buildValidIpUdpResponse(capturedPacket, ihl, realDnsResp)
@@ -249,26 +266,38 @@ class ReelGuardVpnService : VpnService() {
                 outputStream.flush()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "DNS Upstream Cloudflare timeout, thử fallback Google: $domain")
+            Log.w(TAG, "DNS Upstream Cloudflare timeout, thử fallback Google cho key: $cacheKey")
             try {
                 val fallbackQuery = DatagramPacket(capturedPacket, dnsOffset, dnsLen, SECONDARY_DNS, 53)
                 val socket = upstreamSocket ?: return
-                socket.send(fallbackQuery)
+                val realDnsResp = synchronized(socket) {
+                    socket.send(fallbackQuery)
+                    val recvBuffer = ByteArray(4096)
+                    val upstreamResp = DatagramPacket(recvBuffer, recvBuffer.size)
+                    socket.receive(upstreamResp)
+                    recvBuffer.copyOf(upstreamResp.length)
+                }
 
-                val recvBuffer = ByteArray(2048)
-                val upstreamResp = DatagramPacket(recvBuffer, recvBuffer.size)
-                socket.receive(upstreamResp)
+                if (cacheKey != null && dnsCache.size < 2000 && isSuccessfulDnsResponse(realDnsResp)) {
+                    dnsCache[cacheKey] = realDnsResp
+                }
 
-                val realDnsResp = recvBuffer.copyOf(upstreamResp.length)
                 val responseIpPacket = buildValidIpUdpResponse(capturedPacket, ihl, realDnsResp)
                 synchronized(writeLock) {
                     outputStream.write(responseIpPacket)
                     outputStream.flush()
                 }
             } catch (_: Exception) {
-                Log.w(TAG, "DNS Upstream fallback thất bại cho domain: $domain")
+                Log.w(TAG, "DNS Upstream fallback thất bại cho key: $cacheKey")
             }
         }
+    }
+
+    private fun isSuccessfulDnsResponse(response: ByteArray): Boolean {
+        if (response.size < 12) return false
+        val isResponse = (response[2].toInt() and 0x80) != 0
+        val responseCode = response[3].toInt() and 0x0F
+        return isResponse && responseCode == 0
     }
 
     /**
