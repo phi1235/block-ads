@@ -120,6 +120,43 @@ fun HomeScreen(
             )
         }
 
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Card Lọc HTTPS Phẫu thuật (Surgical GraphQL Rewriter)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = BrandCardBackground)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = BrandBlue,
+                    modifier = Modifier.size(28.dp)
+                )
+                Column {
+                    Text(
+                        text = "Lọc HTTPS Phẫu Thuật GraphQL",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = BrandTextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Tự động bóc tách in-stream ads & bảo tồn end_cursor phân trang video.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = BrandTextSecondary
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(20.dp))
     }
 }

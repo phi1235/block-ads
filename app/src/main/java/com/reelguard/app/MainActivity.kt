@@ -18,6 +18,8 @@ import com.reelguard.app.vpn.ConnectionStatus
 import com.reelguard.app.vpn.ReelGuardVpnService
 import com.reelguard.app.vpn.VpnState
 
+import com.reelguard.app.vpn.AdBlockStats
+
 class MainActivity : ComponentActivity() {
 
     private val vpnPermissionLauncher = registerForActivityResult(
@@ -32,6 +34,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AdBlockStats.init(applicationContext)
 
         setContent {
             ReelGuardTheme {
