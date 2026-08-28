@@ -17,6 +17,7 @@ import java.io.FileOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import com.reelguard.app.proxy.HttpProxyServer
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -30,6 +31,7 @@ class ReelGuardVpnService : VpnService() {
     private var workerThread: Thread? = null
     private var executorService: ExecutorService? = null
     private var upstreamSocket: DatagramSocket? = null
+    private var httpProxyServer: HttpProxyServer? = null
     private val dnsCache = ConcurrentHashMap<String, ByteArray>()
     private val writeLock = Any()
     private var notificationManager: NotificationManager? = null
@@ -59,6 +61,7 @@ class ReelGuardVpnService : VpnService() {
 
         notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
+        AdBlockStats.init(applicationContext)
         startForeground(NOTIFICATION_ID, buildNotification(AdBlockStats.blockedCount.value))
 
         try {
@@ -90,14 +93,10 @@ class ReelGuardVpnService : VpnService() {
                 Log.w(TAG, "Cấu hình IPv6 bỏ qua: ${e.message}")
             }
 
-            // Cấu hình Per-App VPN cho các package Facebook nếu có trên máy
-            for (pkg in listOf("com.facebook.katana", "com.facebook.lite", "com.facebook.orca")) {
-                try {
-                    builder.addAllowedApplication(pkg)
-                } catch (_: Exception) {
-                    // Package không tồn tại trên máy
-                }
-            }
+            // Loại trừ chính ReelGuard để tránh vòng lặp gói tin nội bộ
+            try {
+                builder.addDisallowedApplication(packageName)
+            } catch (_: Exception) {}
 
             vpnInterface = builder.establish()
             if (vpnInterface == null) {
@@ -112,9 +111,12 @@ class ReelGuardVpnService : VpnService() {
             }
 
             executorService = Executors.newCachedThreadPool()
+            httpProxyServer = HttpProxyServer(applicationContext, 8888)
+            httpProxyServer?.start()
+
             isRunning = true
             VpnState.updateStatus(ConnectionStatus.CONNECTED)
-            Log.i(TAG, "ReelGuard Anti-Ad DNS Shield đã kích hoạt thành công!")
+            Log.i(TAG, "ReelGuard Anti-Ad DNS Shield & Surgical HTTPS Proxy đã kích hoạt thành công!")
 
             startDnsLoop(vpnInterface!!)
 
@@ -164,7 +166,7 @@ class ReelGuardVpnService : VpnService() {
 
                                 if (domain != null && DnsFilterEngine.isAdDomain(domain)) {
                                     // Chặn tên miền quảng cáo & tracking -> Trả về NXDOMAIN chuẩn RFC (0ms delay)
-                                    Log.i(TAG, "🚫 [CHẶN ADS FB]: $domain -> NXDOMAIN")
+                                    Log.i(TAG, "🚫 [CHẶN ADS FB CỤC BỘ]: $domain -> NXDOMAIN")
                                     AdBlockStats.increment()
                                     updateNotificationRealtime()
 
@@ -243,7 +245,7 @@ class ReelGuardVpnService : VpnService() {
             }
         }
 
-        // 2. Chuyển tiếp tới Upstream DNS Cloudflare / Google
+        // 2. Chuyển tiếp tới Upstream DNS AdGuard (94.140.14.14)
         try {
             val forwardQuery = DatagramPacket(capturedPacket, dnsOffset, dnsLen, PRIMARY_DNS, 53)
             val socket = upstreamSocket ?: return
@@ -253,6 +255,13 @@ class ReelGuardVpnService : VpnService() {
                 val upstreamResp = DatagramPacket(recvBuffer, recvBuffer.size)
                 socket.receive(upstreamResp)
                 recvBuffer.copyOf(upstreamResp.length)
+            }
+
+            // Kiểm tra nếu AdGuard DNS upstream vừa chặn quảng cáo (0.0.0.0 hoặc NXDOMAIN)
+            if (DnsFilterEngine.isAdGuardBlockedResponse(realDnsResp)) {
+                Log.i(TAG, "🚫 [CHẶN TỪ ADGUARD UPSTREAM]: key=$cacheKey")
+                AdBlockStats.increment()
+                updateNotificationRealtime()
             }
 
             // Lưu cache khi phân giải thành công (tối đa 2000 entries)
@@ -266,7 +275,7 @@ class ReelGuardVpnService : VpnService() {
                 outputStream.flush()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "DNS Upstream Cloudflare timeout, thử fallback Google cho key: $cacheKey")
+            Log.w(TAG, "DNS Upstream AdGuard Primary timeout, thử fallback Secondary cho key: $cacheKey")
             try {
                 val fallbackQuery = DatagramPacket(capturedPacket, dnsOffset, dnsLen, SECONDARY_DNS, 53)
                 val socket = upstreamSocket ?: return
@@ -276,6 +285,12 @@ class ReelGuardVpnService : VpnService() {
                     val upstreamResp = DatagramPacket(recvBuffer, recvBuffer.size)
                     socket.receive(upstreamResp)
                     recvBuffer.copyOf(upstreamResp.length)
+                }
+
+                if (DnsFilterEngine.isAdGuardBlockedResponse(realDnsResp)) {
+                    Log.i(TAG, "🚫 [CHẶN TỪ ADGUARD UPSTREAM FALLBACK]: key=$cacheKey")
+                    AdBlockStats.increment()
+                    updateNotificationRealtime()
                 }
 
                 if (cacheKey != null && dnsCache.size < 2000 && isSuccessfulDnsResponse(realDnsResp)) {
@@ -369,6 +384,11 @@ class ReelGuardVpnService : VpnService() {
 
         executorService?.shutdownNow()
         executorService = null
+
+        try {
+            httpProxyServer?.stop()
+            httpProxyServer = null
+        } catch (_: Exception) {}
 
         try {
             upstreamSocket?.close()

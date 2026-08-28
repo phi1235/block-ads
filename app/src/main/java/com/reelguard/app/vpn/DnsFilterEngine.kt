@@ -229,4 +229,83 @@ object DnsFilterEngine {
 
         return response
     }
+
+    /**
+     * Nhận diện xem gói tin DNS trả về từ máy chủ Upstream AdGuard có phải là phản hồi chặn quảng cáo hay không
+     * (NXDOMAIN, REFUSED hoặc IP 0.0.0.0 / ::)
+     */
+    fun isAdGuardBlockedResponse(response: ByteArray): Boolean {
+        if (response.size < 12) return false
+        val isResponse = (response[2].toInt() and 0x80) != 0
+        if (!isResponse) return false
+
+        val rcode = response[3].toInt() and 0x0F
+        if (rcode == 3 || rcode == 5) { // NXDOMAIN hoặc REFUSED
+            return true
+        }
+
+        val qdCount = ((response[4].toInt() and 0xFF) shl 8) or (response[5].toInt() and 0xFF)
+        val anCount = ((response[6].toInt() and 0xFF) shl 8) or (response[7].toInt() and 0xFF)
+        if (anCount == 0) return false
+
+        try {
+            var pos = 12
+            // Bỏ qua Questions section
+            for (i in 0 until qdCount) {
+                while (pos < response.size) {
+                    val len = response[pos].toInt() and 0xFF
+                    pos++
+                    if (len == 0) break
+                    if ((len and 0xC0) == 0xC0) {
+                        pos++
+                        break
+                    }
+                    pos += len
+                }
+                pos += 4 // Type (2 bytes) + Class (2 bytes)
+            }
+
+            // Quét Answers section
+            for (i in 0 until anCount) {
+                if (pos >= response.size) break
+                if ((response[pos].toInt() and 0xC0) == 0xC0) {
+                    pos += 2
+                } else {
+                    while (pos < response.size) {
+                        val len = response[pos].toInt() and 0xFF
+                        pos++
+                        if (len == 0) break
+                        pos += len
+                    }
+                }
+                if (pos + 10 > response.size) break
+                val type = ((response[pos].toInt() and 0xFF) shl 8) or (response[pos + 1].toInt() and 0xFF)
+                val dataLen = ((response[pos + 8].toInt() and 0xFF) shl 8) or (response[pos + 9].toInt() and 0xFF)
+                pos += 10
+
+                if (type == 1 && dataLen == 4 && pos + 4 <= response.size) { // A Record (IPv4)
+                    val b0 = response[pos].toInt() and 0xFF
+                    val b1 = response[pos + 1].toInt() and 0xFF
+                    val b2 = response[pos + 2].toInt() and 0xFF
+                    val b3 = response[pos + 3].toInt() and 0xFF
+                    if (b0 == 0 && b1 == 0 && b2 == 0 && b3 == 0) { // 0.0.0.0
+                        return true
+                    }
+                } else if (type == 28 && dataLen == 16 && pos + 16 <= response.size) { // AAAA Record (IPv6)
+                    var allZero = true
+                    for (j in 0 until 16) {
+                        if (response[pos + j] != 0.toByte()) {
+                            allZero = false
+                            break
+                        }
+                    }
+                    if (allZero) return true
+                }
+                pos += dataLen
+            }
+        } catch (_: Exception) {
+            return false
+        }
+        return false
+    }
 }
